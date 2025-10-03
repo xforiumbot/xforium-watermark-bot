@@ -4,6 +4,8 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from flask import Flask
+import threading
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -14,6 +16,13 @@ TOKEN = os.getenv('BOT_TOKEN')
 
 # Store watermark text per user (default: @xforium)
 WATERMARKS = {}
+
+# Flask app for Render port requirement
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return 'Bot is running!', 200
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Send an image to watermark with @xforium! Use /settext to change the watermark.')
@@ -71,14 +80,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error: {e}")
         await update.message.reply_text("Error processing image. Try another!")
 
-def main():
+def run_bot():
     if not TOKEN:
         raise ValueError("BOT_TOKEN not set")
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("settext", settext))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.run_polling()
+    telegram_app = Application.builder().token(TOKEN).build()
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("settext", settext))
+    telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    telegram_app.run_polling()
 
 if __name__ == '__main__':
-    main()
+    # Start Flask server in a separate thread
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080))))
+    flask_thread.daemon = True
+    flask_thread.start()
+    # Run Telegram bot
+    run_bot()
