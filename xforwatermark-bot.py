@@ -14,9 +14,6 @@ logger = logging.getLogger(__name__)
 # Bot token from environment
 TOKEN = os.getenv('BOT_TOKEN')
 
-# Store watermark text per user (default: @xforium)
-WATERMARKS = {}
-
 # Flask app for Render port requirement
 app = Flask(__name__)
 
@@ -25,15 +22,7 @@ def health_check():
     return 'Bot is running!', 200
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Send an image to watermark with @xforium! Use /settext to change the watermark.')
-
-async def settext(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if not context.args:
-        await update.message.reply_text('Please provide text, e.g., /settext MyWatermark')
-        return
-    WATERMARKS[user_id] = ' '.join(context.args)
-    await update.message.reply_text(f'Watermark set to: {WATERMARKS[user_id]}')
+    await update.message.reply_text('Send an image to watermark with @xforium!')
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -45,27 +34,33 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         img = Image.open(BytesIO(photo_bytes)).convert('RGBA')
         draw = ImageDraw.Draw(img)
 
-        # Get user-specific watermark or default
-        user_id = update.message.from_user.id
-        watermark_text = WATERMARKS.get(user_id, '@xforium')
-
         # Watermark settings
-        font_size = 36
-        font = ImageFont.load_default()
+        watermark_text = '@xforium'
+        font_size = int(min(img.size[0], img.size[1]) * 0.1)  # 10% of smallest dimension
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)  # Bold sans-serif (fallback to default)
+        except IOError:
+            font = ImageFont.load_default()  # Fallback if Arial unavailable
         bbox = draw.textbbox((0, 0), watermark_text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        # Position: center-right (vertically centered, 10px from right)
+        # Position: diagonal across bottom-center, 15° tilt
         width, height = img.size
-        position = (width - text_width - 10, (height - text_height) // 2)
+        x = (width - text_width) // 2  # Center horizontally
+        y = height - int(text_height * 1.5)  # Bottom, adjusted for tilt
+        angle = 15  # 15° clockwise tilt
 
-        # Draw semi-transparent white background
-        bg_position = (position[0] - 5, position[1] - 5, width - 5, position[1] + text_height + 5)
-        draw.rectangle(bg_position, fill=(255, 255, 255, 128))
+        # Create transparent overlay for watermark
+        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        overlay_draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 64))  # White, ~25% opacity
 
-        # Draw white text
-        draw.text(position, watermark_text, fill=(255, 255, 255, 255), font=font)
+        # Rotate overlay
+        rotated = overlay.rotate(-angle, expand=False)
+
+        # Composite rotated watermark onto image
+        img = Image.alpha_composite(img, rotated)
 
         # Save as JPEG
         bio = BytesIO()
@@ -85,7 +80,6 @@ def run_bot():
         raise ValueError("BOT_TOKEN not set")
     telegram_app = Application.builder().token(TOKEN).build()
     telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CommandHandler("settext", settext))
     telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     telegram_app.run_polling()
 
