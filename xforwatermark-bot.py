@@ -23,25 +23,25 @@ def add_watermark(image_stream):
     # Load watermark image
     watermark = Image.open("watermark.png").convert("RGBA")
 
-    # Resize watermark to ~70% of the original width
-    new_width = int(original.width * 0.7)
+    # 🛠 Resize watermark to 90% of original width (much larger now)
+    new_width = int(original.width * 0.9)
     aspect_ratio = watermark.height / watermark.width
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
 
-    # Rotate watermark 15 degrees
-    watermark = watermark.rotate(15, expand=1)
+    # 🌀 Rotate watermark 15 degrees
+    watermark = watermark.rotate(15, expand=True, resample=Image.BICUBIC)
 
-    # Adjust opacity (~95%)
+    # ✨ Keep it crisp with high opacity (0.98)
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.95)
+    alpha = ImageEnhance.Brightness(alpha).enhance(0.98)
     watermark.putalpha(alpha)
 
-    # Position: center vertically, slightly right
-    x = int(original.width * 0.62 - watermark.width / 2)
-    y = int(original.height / 2 - watermark.height / 2)
+    # 📍 Position: centered
+    x = (original.width - watermark.width) // 2
+    y = (original.height - watermark.height) // 2
 
-    # Combine watermark with original
+    # Combine watermark and original
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
@@ -57,7 +57,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     result = add_watermark(image_bytes)
     output = BytesIO()
-    result.save(output, format="JPEG")
+    result.save(output, format="JPEG", quality=95)
     output.seek(0)
 
     await update.message.reply_photo(photo=output, caption="✅ Watermark added successfully!")
@@ -69,9 +69,6 @@ def run_bot():
     app.run_polling()
 
 if __name__ == "__main__":
-    # Run Telegram bot in a thread
     threading.Thread(target=run_bot, daemon=True).start()
-
-    # Run Flask server for Render
     port = int(os.environ.get("PORT", 8080))
     server.run(host="0.0.0.0", port=port)
