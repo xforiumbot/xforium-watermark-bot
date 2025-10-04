@@ -1,62 +1,65 @@
-import os
+# xforwatermark-bot.py
+
+import asyncio
 import threading
-from io import BytesIO
-from PIL import Image, ImageEnhance
 from flask import Flask
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
-BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"
-server = Flask(__name__)
+# -----------------------------
+# Flask app for Render health check
+# -----------------------------
+flask_app = Flask(__name__)
 
-@server.route('/')
+@flask_app.route("/")
 def home():
-    return "✅ Watermark bot is running on Render!"
+    return "✅ Bot is live!"
 
-def add_watermark(image_stream):
-    original = Image.open(image_stream).convert("RGBA")
-    watermark = Image.open("watermark.png").convert("RGBA")
+def run_flask():
+    # Run Flask on Render port
+    flask_app.run(host="0.0.0.0", port=8080)
 
-    new_width = int(original.width * 0.5)
-    aspect_ratio = watermark.height / watermark.width
-    new_height = int(new_width * aspect_ratio)
-    watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
+# -----------------------------
+# Telegram Bot setup (your existing logic)
+# -----------------------------
+BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"  # <-- Replace with your BotFather token
 
-    watermark = watermark.rotate(12, expand=True)
-    alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.85)
-    watermark.putalpha(alpha)
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    x = int(original.width * 0.6 - watermark.width / 2)
-    y = int(original.height / 2 - watermark.height / 2)
+# -----------------------------
+# Your existing handlers go here
+# Example: start command
+# -----------------------------
+async def start(update, context):
+    await update.message.reply_text("Hello! Bot is live and responding!")
 
-    watermarked = Image.new("RGBA", original.size)
-    watermarked.paste(original, (0, 0))
-    watermarked.paste(watermark, (x, y), watermark)
-    return watermarked.convert("RGB")
+app.add_handler(CommandHandler("start", start))
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo_file = await update.message.photo[-1].get_file()
-    image_bytes = BytesIO()
-    await photo_file.download_to_memory(out=image_bytes)
-    image_bytes.seek(0)
+# Example echo handler (optional, keep your existing handlers)
+async def echo(update, context):
+    await update.message.reply_text(update.message.text)
 
-    result = add_watermark(image_bytes)
-    output = BytesIO()
-    result.save(output, format="JPEG")
-    output.seek(0)
+app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
 
-    await update.message.reply_photo(photo=output, caption="✅ Watermark added successfully!")
-
+# -----------------------------
+# Fix threading/asyncio issue
+# -----------------------------
 def run_bot():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.run_polling()
+    # Create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Start the bot using start_polling (async version)
+    loop.run_until_complete(app.start_polling())
+    loop.run_forever()
 
+# -----------------------------
+# Main
+# -----------------------------
 if __name__ == "__main__":
-    # Start the bot in a background thread
-    threading.Thread(target=run_bot, daemon=True).start()
+    # Start Flask in a separate thread for Render health checks
+    threading.Thread(target=run_flask).start()
 
-    # Start the Flask server (this keeps the Render port alive)
-    port = int(os.environ.get("PORT", 8080))
-    server.run(host="0.0.0.0", port=port)
+    # Start Telegram bot in another thread with proper asyncio loop
+    threading.Thread(target=run_bot, name="run_bot").start()
+    
+    print("🚀 Bot is running!")
