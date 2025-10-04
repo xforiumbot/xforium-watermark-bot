@@ -13,10 +13,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Telegram bot token from environment variable
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Flask app to keep the bot alive on Render
 app = Flask(__name__)
 
 @app.route('/')
@@ -32,43 +30,41 @@ def run_flask():
 def add_watermark(image: Image.Image) -> Image.Image:
     watermark_text = "@xforium"
 
-    # Convert image to RGBA for transparency
     image = image.convert("RGBA")
     width, height = image.size
 
-    # Create transparent layer for the watermark
+    # Transparent layer
     txt_layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(txt_layer)
 
-    # Calculate font size ~6% of width (big & bold watermark)
-    font_size = int(width * 0.06)
+    # BIGGER font: ~10% of image width
+    font_size = int(width * 0.10)
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
     except OSError:
         font = ImageFont.load_default()
 
-    # Measure text size and position
+    # Measure text
     text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
 
-    # Position: centered vertically, slightly right horizontally
+    # Center + slightly right
     x = (width - text_width) // 2 + int(width * 0.15)
     y = (height - text_height) // 2
 
-    # Create a rotated watermark image
+    # Watermark layer
     watermark_layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
     watermark_draw = ImageDraw.Draw(watermark_layer)
 
-    # Draw semi-transparent white text
-    watermark_draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 64))  # 64 ≈ 25% opacity
+    # Much darker watermark (~70% opacity)
+    watermark_draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 180))
 
-    # Rotate ~15°
+    # Tilt 15 degrees
     rotated_watermark = watermark_layer.rotate(15, expand=1)
 
-    # Combine original image with watermark
+    # Combine
     combined = Image.alpha_composite(image, rotated_watermark)
-
     return combined.convert("RGB")
 
 # -------------------------------
@@ -83,11 +79,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await photo_file.download_to_memory(photo_bytes)
     photo_bytes.seek(0)
 
-    # Open and watermark the image
     original_image = Image.open(photo_bytes)
     watermarked_image = add_watermark(original_image)
 
-    # Send back to user
     output_bytes = BytesIO()
     watermarked_image.save(output_bytes, format='JPEG')
     output_bytes.seek(0)
@@ -102,13 +96,9 @@ def main():
         logger.error("BOT_TOKEN not found in environment variables!")
         return
 
-    # Start Flask server in a separate thread
     threading.Thread(target=run_flask).start()
 
-    # Initialize bot
     application = Application.builder().token(TOKEN).build()
-
-    # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
