@@ -32,6 +32,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Open image
         img = Image.open(BytesIO(photo_bytes)).convert('RGBA')
+        draw = ImageDraw.Draw(img)
 
         # Watermark settings
         watermark_text = '@xforium'
@@ -40,7 +41,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             font = ImageFont.truetype("arial.ttf", font_size)  # Bold sans-serif
         except IOError:
             font = ImageFont.load_default()  # Fallback
-        bbox = img.getbbox()
+        # Get text bounding box
+        bbox = draw.textbbox((0, 0), watermark_text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
