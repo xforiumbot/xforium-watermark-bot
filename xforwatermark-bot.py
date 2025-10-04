@@ -1,7 +1,7 @@
 import os
 import threading
 from io import BytesIO
-from PIL import Image, ImageEnhance
+from PIL import Image
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
@@ -17,11 +17,15 @@ def home():
     return "✅ xForium Watermark Bot is running!"
 
 # --- Watermark function ---
-def add_watermark(image_stream):
+def add_watermark(image_stream, opacity=80):
+    """
+    image_stream: BytesIO of the original image
+    opacity: 0-255, lower is more transparent
+    """
     original = Image.open(image_stream).convert("RGBA")
     watermark = Image.open("watermark.png").convert("RGBA")
 
-    # Resize watermark ~80% of original width (BIG & crisp)
+    # Resize watermark ~80% of original width
     new_width = int(original.width * 0.8)
     aspect_ratio = watermark.height / watermark.width
     new_height = int(new_width * aspect_ratio)
@@ -30,9 +34,9 @@ def add_watermark(image_stream):
     # Rotate watermark ~15°
     watermark = watermark.rotate(15, expand=1)
 
-    # Increase opacity to ~95%
-    alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.95)
+    # Apply opacity
+    alpha = watermark.split()[3]  # get alpha channel
+    alpha = alpha.point(lambda p: p * (opacity / 255))
     watermark.putalpha(alpha)
 
     # Position: centered vertically, slightly to the right
@@ -55,7 +59,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await photo_file.download_to_memory(out=image_bytes)
     image_bytes.seek(0)
 
-    result = add_watermark(image_bytes)
+    result = add_watermark(image_bytes, opacity=100)  # <-- Change opacity here (0-255)
     output = BytesIO()
     result.save(output, format="JPEG")
     output.seek(0)
