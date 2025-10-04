@@ -22,7 +22,7 @@ def run_flask():
 # Telegram Bot setup
 # -----------------------------
 # Your bot token is already set in this variable
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
