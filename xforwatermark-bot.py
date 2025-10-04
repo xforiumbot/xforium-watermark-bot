@@ -1,124 +1,62 @@
-import logging
 import os
-import threading
 from io import BytesIO
-from pathlib import Path
-from PIL import Image, ImageEnhance
+from PIL import Image
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from flask import Flask
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# Logging
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
+# === CONFIG ===
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+WATERMARK_PATH = "Black_White_Simple_Quote_Instagram_Post-removebg-preview.png"  # PNG watermark file
 
-# Configuration via environment (easy to tweak in Render)
-WATERMARK_FILE = os.getenv("WATERMARK_FILE", "watermark.png")    # file in repo root
-WATERMARK_SCALE = float(os.getenv("WATERMARK_SCALE", "0.5"))     # fraction of image width (0.5 = 50%)
-WATERMARK_OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.9")) # 0.0..1.0
-
-TOKEN = os.getenv("BOT_TOKEN")
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "xForium watermark bot is running", 200
-
-# Load watermark once at startup (so errors show in logs immediately)
-BASE_DIR = Path(__file__).resolve().parent
-watermark_path = BASE_DIR / WATERMARK_FILE
-_loaded_wm = None
-
-try:
-    if not watermark_path.exists():
-        raise FileNotFoundError(f"{watermark_path} not found")
-    _loaded_wm = Image.open(watermark_path).convert("RGBA")
-    logger.info(f"Loaded watermark image '{watermark_path.name}' size={_loaded_wm.size}")
-except Exception as ex:
-    logger.error(f"Could not load watermark image '{watermark_path}': {ex}")
-    _loaded_wm = None
-
-def prepare_watermark_for_image(base_img: Image.Image) -> Image.Image:
-    """
-    Resize, adjust opacity and rotate the watermark for the given base image.
-    Returns a watermark Image in RGBA mode.
-    """
-    if _loaded_wm is None:
-        raise RuntimeError("Watermark image not loaded on server")
-
-    ow, oh = base_img.size
-    # target width relative to base image
-    target_w = max(1, int(ow * WATERMARK_SCALE))
-    aspect = _loaded_wm.height / _loaded_wm.width
-    target_h = max(1, int(target_w * aspect))
-
-    wm = _loaded_wm.copy().resize((target_w, target_h), Image.LANCZOS)
-
-    # apply opacity: change alpha channel brightness
-    alpha = wm.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(WATERMARK_OPACITY)
-    wm.putalpha(alpha)
-
-    # rotate watermark (tilt)
-    rotated = wm.rotate(-15, expand=True)
-    return rotated
-
+# === /start command ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Send me a photo and I'll add your xForium watermark.")
+    await update.message.reply_text("Send me a photo and I’ll watermark it ✍️")
 
+# === Function to add image watermark ===
+def add_watermark(input_image_bytes):
+    base_image = Image.open(BytesIO(input_image_bytes)).convert("RGBA")
+
+    # Open watermark image
+    watermark = Image.open(WATERMARK_PATH).convert("RGBA")
+
+    # --- Resize watermark to ~35% of base image width ---
+    target_width = int(base_image.width * 0.35)  # ✅ 3.5× bigger than before
+    aspect_ratio = watermark.height / watermark.width
+    new_height = int(target_width * aspect_ratio)
+    watermark = watermark.resize((target_width, new_height), Image.LANCZOS)
+
+    # --- Adjust watermark opacity ---
+    alpha = watermark.split()[3]
+    alpha = alpha.point(lambda p: p * 0.85)  # ✅ 85% opacity (more visible but still transparent)
+    watermark.putalpha(alpha)
+
+    # --- Position: centered and slightly to the right ---
+    pos_x = int(base_image.width / 2 + base_image.width * 0.1 - watermark.width / 2)
+    pos_y = int(base_image.height / 2 - watermark.height / 2)
+
+    # --- Paste watermark ---
+    watermarked = base_image.copy()
+    watermarked.paste(watermark, (pos_x, pos_y), watermark)
+
+    # Convert back to bytes
+    output_bytes = BytesIO()
+    watermarked.convert("RGB").save(output_bytes, format="JPEG")
+    output_bytes.seek(0)
+    return output_bytes
+
+# === Handle images ===
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if _loaded_wm is None:
-        await update.message.reply_text("⚠️ Watermark image not found on server. Make sure 'watermark.png' is in the project root and redeploy.")
-        return
+    photo = await update.message.photo[-1].get_file()
+    photo_bytes = await photo.download_as_bytearray()
 
-    try:
-        file = await update.message.photo[-1].get_file()
-        data = await file.download_as_bytearray()
-        base = Image.open(BytesIO(data)).convert("RGBA")
-        bw, bh = base.size
+    watermarked_bytes = add_watermark(photo_bytes)
 
-        # Prepare watermark sized for this base image
-        wm = prepare_watermark_for_image(base)
-        wmw, wmh = wm.size
+    await update.message.reply_photo(photo=watermarked_bytes, caption="✅ Watermark added!")
 
-        # Position: centered vertically, slightly to the right horizontally
-        # pos_x places watermark center around 60% width (tweak if needed)
-        center_x = int(bw * 0.60)
-        pos_x = center_x - wmw // 2
-        pos_y = (bh - wmh) // 2
-
-        # Ensure positions stay in bounds
-        pos_x = max(-wmw, min(bw, pos_x))
-        pos_y = max(-wmh, min(bh, pos_y))
-
-        # Composite: create an empty layer and paste watermark with its alpha as mask
-        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        layer.paste(wm, (pos_x, pos_y), wm)
-
-        combined = Image.alpha_composite(base, layer).convert("RGB")
-
-        out = BytesIO()
-        out.name = "watermarked.jpg"
-        combined.save(out, format="JPEG", quality=95)
-        out.seek(0)
-
-        await update.message.reply_photo(photo=out, caption="✅ Watermarked by @xForium")
-        logger.info("Sent watermarked image")
-    except Exception as e:
-        logger.exception("Failed to watermark image")
-        await update.message.reply_text("⚠️ Failed to watermark image. Check server logs.")
-
-def run_bot():
-    if not TOKEN:
-        logger.error("BOT_TOKEN not set in environment")
-        return
-    app_bot = Application.builder().token(TOKEN).build()
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    logger.info("Starting Telegram polling...")
-    app_bot.run_polling()
-
+# === MAIN ===
 if __name__ == "__main__":
-    # start Flask in background (Render keep-alive)
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080))), daemon=True).start()
-    run_bot()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    print("🚀 Bot is running...")
+    app.run_polling()
