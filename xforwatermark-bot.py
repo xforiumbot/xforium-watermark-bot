@@ -1,11 +1,11 @@
 import logging
 import os
+import threading
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from flask import Flask
-import threading
 
 # Enable logging
 logging.basicConfig(
@@ -13,107 +13,107 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Flask app for Render health check
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "✅ Bot is running!", 200
-
+# Telegram bot token from environment variable
 TOKEN = os.getenv("BOT_TOKEN")
 
-# /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📸 Send me an image and I'll watermark it with @xforium!")
+# Flask app to keep the bot alive on Render
+app = Flask(__name__)
 
-# Watermark handler
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@app.route('/')
+def home():
+    return "Watermark Bot is running!"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+# -------------------------------
+# Watermark function
+# -------------------------------
+def add_watermark(image: Image.Image) -> Image.Image:
+    watermark_text = "@xforium"
+
+    # Convert image to RGBA for transparency
+    image = image.convert("RGBA")
+    width, height = image.size
+
+    # Create transparent layer for the watermark
+    txt_layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(txt_layer)
+
+    # Calculate font size ~6% of width (big & bold watermark)
+    font_size = int(width * 0.06)
     try:
-        # Download image
-        telegram_file = await update.message.photo[-1].get_file()
-        photo_bytes = await telegram_file.download_as_bytearray()
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except OSError:
+        font = ImageFont.load_default()
 
-        img = Image.open(BytesIO(photo_bytes)).convert("RGBA")
-        width, height = img.size
-        watermark_text = "@xforium"
+    # Measure text size and position
+    text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
 
-        # MUCH larger font size (~60% of width)
-        font_size = int(width * 0.6)
+    # Position: centered vertically, slightly right horizontally
+    x = (width - text_width) // 2 + int(width * 0.15)
+    y = (height - text_height) // 2
 
-        try:
-            font = ImageFont.truetype("arial.ttf", font_size)
-        except:
-            font = ImageFont.load_default()
+    # Create a rotated watermark image
+    watermark_layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
+    watermark_draw = ImageDraw.Draw(watermark_layer)
 
-        # Transparent layer for watermark
-        watermark_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(watermark_layer)
+    # Draw semi-transparent white text
+    watermark_draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 64))  # 64 ≈ 25% opacity
 
-        # Text size
-        bbox = draw.textbbox((0, 0), watermark_text, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
+    # Rotate ~15°
+    rotated_watermark = watermark_layer.rotate(15, expand=1)
 
-        # Centered but shifted slightly right (~20% of width)
-        x = (width - text_w) // 2 + int(width * 0.2)
-        y = (height - text_h) // 2
+    # Combine original image with watermark
+    combined = Image.alpha_composite(image, rotated_watermark)
 
-        # Shadow (black) + main watermark (white, 40% opacity)
-        draw.text((x + 5, y + 5), watermark_text, font=font, fill=(0, 0, 0, 120))
-        draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 100))
+    return combined.convert("RGB")
 
-        # Rotate ~15°
-        rotated_layer = watermark_layer.rotate(-15, expand=True)
+# -------------------------------
+# Telegram Bot Handlers
+# -------------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Send me any image and I’ll watermark it with @xforium!")
 
-        # Center rotated watermark
-        final_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        offset_x = (img.width - rotated_layer.width) // 2
-        offset_y = (img.height - rotated_layer.height) // 2
-        final_layer.paste(rotated_layer, (offset_x, offset_y), rotated_layer)
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo_file = await update.message.photo[-1].get_file()
+    photo_bytes = BytesIO()
+    await photo_file.download_to_memory(photo_bytes)
+    photo_bytes.seek(0)
 
-        # Merge
-        watermarked_img = Image.alpha_composite(img, final_layer)
+    # Open and watermark the image
+    original_image = Image.open(photo_bytes)
+    watermarked_image = add_watermark(original_image)
 
-        # Save result
-        output = BytesIO()
-        output.name = "watermarked.jpg"
-        watermarked_img.convert("RGB").save(output, "JPEG", quality=95)
-        output.seek(0)
+    # Send back to user
+    output_bytes = BytesIO()
+    watermarked_image.save(output_bytes, format='JPEG')
+    output_bytes.seek(0)
 
-        await update.message.reply_photo(photo=output)
-        logger.info("✅ Watermarked image sent successfully.")
+    await update.message.reply_photo(photo=output_bytes, caption="✅ Watermarked!")
 
-    except Exception as e:
-        logger.error(f"❌ Error watermarking image: {e}")
-        await update.message.reply_text("⚠️ Failed to watermark image. Try again!")
+# -------------------------------
+# Main function
+# -------------------------------
+def main():
+    if TOKEN is None:
+        logger.error("BOT_TOKEN not found in environment variables!")
+        return
 
-# Run bot
-def run_bot():
-    if not TOKEN:
-        raise ValueError("❌ BOT_TOKEN is not set!")
+    # Start Flask server in a separate thread
+    threading.Thread(target=run_flask).start()
+
+    # Initialize bot
     application = Application.builder().token(TOKEN).build()
+
+    # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
+    logger.info("🤖 Bot is running...")
     application.run_polling()
 
-# Run Flask and bot
 if __name__ == "__main__":
-    threading.Thread(
-        target=lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
-    ).start()
-    run_bot()
-```
-
----
-
-### 📌 Notes:
-
-* Font size is now **60% of image width** → very bold.
-* Watermark is **centered** but nudged **20% to the right**.
-* Visibility is much better thanks to shadow + opacity 100 (~40%).
-
----
-
-🔥 **Try redeploying this now** and send a large image. You should see a *big, tilted, centered-right watermark* now.
-
-Would you like me to make it **diagonally across the entire image** (like a security watermark)? That looks super professional for brands.
+    main()
