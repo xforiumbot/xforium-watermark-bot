@@ -32,7 +32,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Open image
         img = Image.open(BytesIO(photo_bytes)).convert('RGBA')
-        draw = ImageDraw.Draw(img)
 
         # Watermark settings
         watermark_text = '@xforium'
@@ -41,21 +40,27 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             font = ImageFont.truetype("arial.ttf", font_size)  # Bold sans-serif
         except IOError:
             font = ImageFont.load_default()  # Fallback
-        bbox = draw.textbbox((0, 0), watermark_text, font=font)
+        bbox = img.getbbox()
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        # Position: center, slightly above middle
+        # Create transparent overlay for watermark
+        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+
+        # Position: dead center
         width, height = img.size
-        x = (width - text_width) // 2  # Center horizontally
-        y = (height - text_height) // 2 - int(height * 0.1)  # Slightly above center (10% offset up)
+        x = (width - text_width) // 2
+        y = (height - text_height) // 2
 
-        # Draw semi-transparent white background
-        bg_position = (x - 5, y - 5, x + text_width + 5, y + text_height + 5)
-        draw.rectangle(bg_position, fill=(255, 255, 255, 64))  # 25% opacity
+        # Draw text on overlay with 25% opacity
+        overlay_draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 64))  # White, 25% opacity
 
-        # Draw white text
-        draw.text((x, y), watermark_text, fill=(255, 255, 255, 64), font=font)  # 25% opacity
+        # Rotate overlay for 15° clockwise tilt
+        rotated = overlay.rotate(-15, expand=False)
+
+        # Composite rotated watermark onto image
+        img = Image.alpha_composite(img, rotated)
 
         # Save as JPEG
         bio = BytesIO()
