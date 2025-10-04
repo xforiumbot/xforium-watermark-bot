@@ -4,16 +4,17 @@ from PIL import Image, ImageEnhance
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+import threading
 
 # --- Bot token ---
 BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"
 
-# --- Flask app for Render ---
+# --- Flask app for Render health check ---
 server = Flask(__name__)
 
 @server.route('/')
 def home():
-    return "Watermark bot is running 🚀"
+    return "✅ Watermark bot is running!"
 
 # --- Watermark function ---
 def add_watermark(image_stream):
@@ -22,8 +23,8 @@ def add_watermark(image_stream):
     # Load watermark image
     watermark = Image.open("watermark.png").convert("RGBA")
 
-    # Resize watermark to ~50% of the original width
-    new_width = int(original.width * 0.5)
+    # Resize watermark to ~70% of the original width
+    new_width = int(original.width * 0.7)
     aspect_ratio = watermark.height / watermark.width
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
@@ -31,19 +32,20 @@ def add_watermark(image_stream):
     # Rotate watermark 15 degrees
     watermark = watermark.rotate(15, expand=1)
 
-    # Adjust opacity to ~90%
+    # Adjust opacity (~95%)
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.9)
+    alpha = ImageEnhance.Brightness(alpha).enhance(0.95)
     watermark.putalpha(alpha)
 
-    # Position: center vertically, slightly right (60% of width)
-    x = int(original.width * 0.6 - watermark.width / 2)
+    # Position: center vertically, slightly right
+    x = int(original.width * 0.62 - watermark.width / 2)
     y = int(original.height / 2 - watermark.height / 2)
 
-    # Paste watermark
+    # Combine watermark with original
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
+
     return watermarked.convert("RGB")
 
 # --- Telegram handler ---
@@ -60,11 +62,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_photo(photo=output, caption="✅ Watermark added successfully!")
 
-# --- Bot setup ---
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+# --- Run bot + server together ---
+def run_bot():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.run_polling()
 
 if __name__ == "__main__":
+    # Run Telegram bot in a thread
+    threading.Thread(target=run_bot, daemon=True).start()
+
+    # Run Flask server for Render
     port = int(os.environ.get("PORT", 8080))
-    app.run_polling()
     server.run(host="0.0.0.0", port=port)
