@@ -1,9 +1,10 @@
 # xforwatermark-bot.py
 
-import asyncio
 import threading
 from flask import Flask
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from PIL import Image  # Keep if your watermark logic uses Pillow
+import io
 
 # -----------------------------
 # Flask app for Render health check
@@ -15,51 +16,41 @@ def home():
     return "✅ Bot is live!"
 
 def run_flask():
-    # Run Flask on Render port
     flask_app.run(host="0.0.0.0", port=8080)
 
 # -----------------------------
-# Telegram Bot setup (your existing logic)
+# Telegram Bot setup
 # -----------------------------
-BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"  # <-- Replace with your BotFather token
+# Your bot token is already set in this variable
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 # -----------------------------
-# Your existing handlers go here
-# Example: start command
+# Command Handlers
 # -----------------------------
 async def start(update, context):
     await update.message.reply_text("Hello! Bot is live and responding!")
 
 app.add_handler(CommandHandler("start", start))
 
-# Example echo handler (optional, keep your existing handlers)
+# -----------------------------
+# Message Handlers
+# Replace this echo handler with your watermark logic
+# -----------------------------
 async def echo(update, context):
+    # Example: replies with the same text
     await update.message.reply_text(update.message.text)
 
 app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
 
 # -----------------------------
-# Fix threading/asyncio issue
-# -----------------------------
-def run_bot():
-    # Create a new event loop for this thread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Start the bot using start_polling (async version)
-    loop.run_until_complete(app.start_polling())
-    loop.run_forever()
-
-# -----------------------------
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    # Start Flask in a separate thread for Render health checks
+    # Run Flask in a separate thread for Render health checks
     threading.Thread(target=run_flask).start()
 
-    # Start Telegram bot in another thread with proper asyncio loop
-    threading.Thread(target=run_bot, name="run_bot").start()
-    
-    print("🚀 Bot is running!")
+    # Run Telegram bot in main thread
+    print("🚀 Telegram bot is starting...")
+    app.run_polling()  # Must run in main thread for PTB v21.4
