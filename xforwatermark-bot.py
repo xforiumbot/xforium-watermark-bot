@@ -36,31 +36,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Watermark settings
         watermark_text = '@xforium'
-        font_size = int(min(img.size[0], img.size[1]) * 0.1)  # 10% of smallest dimension
+        font_size = int(min(img.size[0], img.size[1]) * 0.08)  # ~24-36pt for subheading
         try:
-            font = ImageFont.truetype("arial.ttf", font_size)  # Bold sans-serif (fallback to default)
+            font = ImageFont.truetype("arial.ttf", font_size)  # Bold sans-serif
         except IOError:
-            font = ImageFont.load_default()  # Fallback if Arial unavailable
+            font = ImageFont.load_default()  # Fallback
         bbox = draw.textbbox((0, 0), watermark_text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        # Position: diagonal across bottom-center, 15° tilt
+        # Position: center, slightly above middle
         width, height = img.size
         x = (width - text_width) // 2  # Center horizontally
-        y = height - int(text_height * 1.5)  # Bottom, adjusted for tilt
-        angle = 15  # 15° clockwise tilt
+        y = (height - text_height) // 2 - int(height * 0.1)  # Slightly above center (10% offset up)
 
-        # Create transparent overlay for watermark
-        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
-        overlay_draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 64))  # White, ~25% opacity
+        # Draw semi-transparent white background
+        bg_position = (x - 5, y - 5, x + text_width + 5, y + text_height + 5)
+        draw.rectangle(bg_position, fill=(255, 255, 255, 64))  # 25% opacity
 
-        # Rotate overlay
-        rotated = overlay.rotate(-angle, expand=False)
-
-        # Composite rotated watermark onto image
-        img = Image.alpha_composite(img, rotated)
+        # Draw white text
+        draw.text((x, y), watermark_text, fill=(255, 255, 255, 64), font=font)  # 25% opacity
 
         # Save as JPEG
         bio = BytesIO()
