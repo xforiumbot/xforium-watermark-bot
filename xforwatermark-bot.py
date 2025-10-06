@@ -1,13 +1,12 @@
 import os
 import threading
-import asyncio
 from io import BytesIO
 from PIL import Image, ImageEnhance
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-# --- Bot token ---
+# --- Bot token (already set in your variable) ---
 BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"
 
 # --- Flask app for Render ---
@@ -18,11 +17,7 @@ def home():
     return "✅ xForium Watermark Bot is running!"
 
 # --- Watermark function ---
-def add_watermark(image_stream, opacity=0.5):
-    """
-    image_stream: BytesIO object
-    opacity: float between 0.0 (transparent) to 1.0 (fully visible)
-    """
+def add_watermark(image_stream):
     original = Image.open(image_stream).convert("RGBA")
     watermark = Image.open("watermark.png").convert("RGBA")
 
@@ -35,19 +30,20 @@ def add_watermark(image_stream, opacity=0.5):
     # Rotate watermark ~15°
     watermark = watermark.rotate(15, expand=1)
 
-    # Adjust opacity
+    # ✅ Make watermark subtle (~30% opacity)
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
+    alpha = ImageEnhance.Brightness(alpha).enhance(0.3)  # reduced from 0.95 → 0.3
     watermark.putalpha(alpha)
 
-    # Position: centered vertically, slightly to the right
-    x = int(original.width * 0.6 - watermark.width / 2)
-    y = int(original.height / 2 - watermark.height / 2)
+    # ✅ Position: slightly bottom-left (~40px from edges)
+    x = 40
+    y = original.height - watermark.height - 40
 
-    # Paste watermark on image
+    # Paste watermark onto original image
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
+
     return watermarked.convert("RGB")
 
 # --- Telegram Handlers ---
@@ -60,9 +56,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await photo_file.download_to_memory(out=image_bytes)
     image_bytes.seek(0)
 
-    # Run blocking watermark code in a thread
-    result = await asyncio.to_thread(add_watermark, image_bytes, 0.5)  # adjust opacity here (0.0-1.0)
-
+    result = add_watermark(image_bytes)
     output = BytesIO()
     result.save(output, format="JPEG")
     output.seek(0)
@@ -78,8 +72,11 @@ def run_bot():
     app.run_polling()
 
 if __name__ == "__main__":
-    # Start Flask in a thread (Render requirement)
-    threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))), daemon=True).start()
+    # Start Flask in a separate thread (for Render)
+    threading.Thread(
+        target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))),
+        daemon=True
+    ).start()
 
     # Run Telegram bot (main thread)
     run_bot()
