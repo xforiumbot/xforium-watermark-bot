@@ -6,7 +6,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-# --- Bot token (already set in your variable) ---
+# --- Bot token ---
 BOT_TOKEN = "8259315231:AAG_CJPN5XCYbstbA1j-JXw_QQJqTGR_rxs"
 
 # --- Flask app for Render ---
@@ -27,12 +27,12 @@ def add_watermark(image_stream):
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
 
-    # Rotate watermark ~15°
-    watermark = watermark.rotate(15, expand=1)
+    # ✅ Reduce rotation angle (~8° instead of 15°)
+    watermark = watermark.rotate(8, expand=1)
 
-    # ✅ Make watermark subtle (~30% opacity)
+    # ✅ Make watermark very subtle (~15% opacity)
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.3)  # reduced from 0.95 → 0.3
+    alpha = ImageEnhance.Brightness(alpha).enhance(0.15)  # much lighter now
     watermark.putalpha(alpha)
 
     # ✅ Position: slightly bottom-left (~40px from edges)
