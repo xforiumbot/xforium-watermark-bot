@@ -27,19 +27,18 @@ def add_watermark(image_stream):
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
 
-    # ✅ Reduced rotation angle (~8°)
+    # Rotation ~8° (unchanged)
     watermark = watermark.rotate(8, expand=1)
 
-    # ✅ Very subtle watermark (~15% opacity)
+    # Very light opacity (~15%, unchanged)
     alpha = watermark.split()[3]
     alpha = ImageEnhance.Brightness(alpha).enhance(0.15)
     watermark.putalpha(alpha)
 
-    # ✅ Position: ~100px from bottom and ~40px from left (≈3–5 cm lower)
+    # ✅ Move watermark ~200px from bottom (~5–10 cm lower than before)
     x = 40
-    y = original.height - watermark.height - 100
+    y = original.height - watermark.height - 200
 
-    # Paste watermark
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
@@ -72,11 +71,9 @@ def run_bot():
     app.run_polling()
 
 if __name__ == "__main__":
-    # Start Flask in a separate thread (for Render)
     threading.Thread(
         target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))),
         daemon=True
     ).start()
 
-    # Run Telegram bot (main thread)
     run_bot()
