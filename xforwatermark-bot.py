@@ -27,19 +27,19 @@ def add_watermark(image_stream):
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
 
-    # ✅ Reduce rotation angle (~8° instead of 15°)
+    # ✅ Reduced rotation angle (~8°)
     watermark = watermark.rotate(8, expand=1)
 
-    # ✅ Make watermark very subtle (~15% opacity)
+    # ✅ Very subtle watermark (~15% opacity)
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.15)  # much lighter now
+    alpha = ImageEnhance.Brightness(alpha).enhance(0.15)
     watermark.putalpha(alpha)
 
-    # ✅ Position: slightly bottom-left (~40px from edges)
+    # ✅ Position: ~100px from bottom and ~40px from left (≈3–5 cm lower)
     x = 40
-    y = original.height - watermark.height - 40
+    y = original.height - watermark.height - 100
 
-    # Paste watermark onto original image
+    # Paste watermark
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
