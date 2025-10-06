@@ -35,12 +35,22 @@ def add_watermark(image_stream):
     alpha = ImageEnhance.Brightness(alpha).enhance(0.15)
     watermark.putalpha(alpha)
 
-    # ✅ Bottom-left placement (~40px above bottom edge)
-    x = 40
-    y = original.height - watermark.height - 40
-    if y < 0:
-        y = 0  # safety for very small images
+    # 📍 Place watermark in bottom third for iPhone screenshots
+    bottom_third_start = original.height * (2 / 3)
+    y = int(bottom_third_start + (original.height / 3 - watermark.height) / 2)
 
+    # Add ~40px margin above bottom edge if space allows
+    if y + watermark.height + 40 > original.height:
+        y = original.height - watermark.height - 40
+
+    # Slight padding from left
+    x = 40
+
+    # Safety clamp
+    if y < 0:
+        y = 0
+
+    # Paste watermark
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
