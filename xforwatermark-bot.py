@@ -6,7 +6,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-# --- Bot token (NEW) ---
+# --- Bot token ---
 BOT_TOKEN = "8259315231:AAFGTbqrn8bz7goeVb0N5vJpo-ZA4RVBrbo"
 
 # --- Flask app for Render ---
@@ -30,16 +30,15 @@ def add_watermark(image_stream):
     # Rotate watermark ~10°
     watermark = watermark.rotate(10, expand=1)
 
-    # Decrease opacity significantly (~25%)
+    # Decrease opacity (~25%)
     alpha = watermark.split()[3]
     alpha = ImageEnhance.Brightness(alpha).enhance(0.25)
     watermark.putalpha(alpha)
 
-    # Position: raised ~0.6 inch higher from previous version
+    # ✅ New position (~0.5 inch higher): was 0.75 → now 0.70
     x = int(original.width * 0.5 - watermark.width / 2)
-    y = int(original.height * 0.75 - watermark.height / 2)  # was 0.80 → now 0.75
+    y = int(original.height * 0.70 - watermark.height / 2)
 
-    # Paste watermark on image
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
     watermarked.paste(watermark, (x, y), watermark)
@@ -71,8 +70,5 @@ def run_bot():
     app.run_polling()
 
 if __name__ == "__main__":
-    # Start Flask in a thread (Render requirement)
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))), daemon=True).start()
-
-    # Run Telegram bot (main thread)
     run_bot()
