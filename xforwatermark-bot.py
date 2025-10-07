@@ -35,9 +35,9 @@ def add_watermark(image_stream):
     alpha = ImageEnhance.Brightness(alpha).enhance(0.25)
     watermark.putalpha(alpha)
 
-    # Position: bottom third of image
+    # Position: bottom third of image, moved 0.5 inch (~5%) higher
     x = int(original.width * 0.5 - watermark.width / 2)
-    y = int(original.height * 0.85 - watermark.height / 2)  # move lower into bottom region
+    y = int(original.height * 0.80 - watermark.height / 2)  # was 0.85 → now 0.80 for ~0.5 inch higher
 
     # Paste watermark on image
     watermarked = Image.new("RGBA", original.size)
