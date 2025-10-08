@@ -1,74 +1,72 @@
 import os
-import threading
+from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
-from PIL import Image, ImageEnhance
-from flask import Flask
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 
-# --- Bot token ---
+# Your bot token
 BOT_TOKEN = "8259315231:AAFGTbqrn8bz7goeVb0N5vJpo-ZA4RVBrbo"
 
-# --- Flask app for Render ---
-server = Flask(__name__)
+# Path to your watermark image (ensure watermark.png is in the same folder as this file)
+WATERMARK_PATH = "watermark.png"
 
-@server.route('/')
-def home():
-    return "✅ xForium Watermark Bot is running!"
+async def add_watermark(input_image: BytesIO) -> BytesIO:
+    original = Image.open(input_image).convert("RGBA")
 
-# --- Watermark function ---
-def add_watermark(image_stream):
-    original = Image.open(image_stream).convert("RGBA")
-    watermark = Image.open("watermark.png").convert("RGBA")
+    # Load watermark
+    watermark = Image.open(WATERMARK_PATH).convert("RGBA")
 
-    # Resize watermark ~80% of original width
-    new_width = int(original.width * 0.8)
+    # ✅ Resize watermark to ~70% of original width (smaller & cleaner)
+    new_width = int(original.width * 0.7)
     aspect_ratio = watermark.height / watermark.width
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
 
-    # Rotate watermark ~10°
-    watermark = watermark.rotate(10, expand=1)
+    # ✅ Rotate watermark to ~80° (slightly tilted)
+    watermark = watermark.rotate(80, expand=1)
 
-    # Decrease opacity (~25%)
+    # ✅ Make watermark super light (opacity)
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.25)
+    alpha = alpha.point(lambda p: p * 0.08)  # ~8% opacity
     watermark.putalpha(alpha)
 
-    # ✅ New position (~0.5 inch higher): was 0.75 → now 0.70
-    x = int(original.width * 0.5 - watermark.width / 2)
-    y = int(original.height * 0.70 - watermark.height / 2)
+    # ✅ Place watermark near the bottom (iPhone screenshots) but slightly lifted (~0.6 inch)
+    margin_x = int(original.width * 0.05)  # ~5% from left
+    margin_y = int(original.height * 0.17)  # ~17% from bottom (higher than before)
 
+    position = (margin_x, original.height - watermark.height - margin_y)
+
+    # Paste watermark
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
-    watermarked.paste(watermark, (x, y), watermark)
-    return watermarked.convert("RGB")
+    watermarked.paste(watermark, position, mask=watermark)
 
-# --- Telegram Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Send me any photo and I'll watermark it for you!")
+    output = BytesIO()
+    watermarked.convert("RGB").save(output, format="JPEG", quality=95)
+    output.seek(0)
+    return output
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo_file = await update.message.photo[-1].get_file()
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo = update.message.photo[-1]
+    file = await photo.get_file()
     image_bytes = BytesIO()
-    await photo_file.download_to_memory(out=image_bytes)
+    await file.download_to_memory(out=image_bytes)
     image_bytes.seek(0)
 
-    result = add_watermark(image_bytes)
-    output = BytesIO()
-    result.save(output, format="JPEG")
-    output.seek(0)
+    watermarked_image = await add_watermark(image_bytes)
+    await update.message.reply_photo(photo=watermarked_image, caption="✅ Watermark added!")
 
-    await update.message.reply_photo(photo=output, caption="✅ Watermark added successfully!")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Send me an image 📸 and I'll watermark it instantly!")
 
-# --- Start bot ---
-def run_bot():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    print("🚀 Telegram bot polling started...")
+
+    app.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    app.add_handler(MessageHandler(filters.COMMAND, start))
+
+    print("✅ Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
-    threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))), daemon=True).start()
-    run_bot()
+    main()
