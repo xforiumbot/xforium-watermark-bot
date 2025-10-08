@@ -1,72 +1,82 @@
 import os
-from PIL import Image, ImageDraw, ImageFont
+from flask import Flask, request
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from io import BytesIO
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
-# Your bot token
+# ✅ Your bot token (already inserted)
 BOT_TOKEN = "8259315231:AAFGTbqrn8bz7goeVb0N5vJpo-ZA4RVBrbo"
 
-# Path to your watermark image (ensure watermark.png is in the same folder as this file)
-WATERMARK_PATH = "watermark.png"
+# ✅ Your Render URL (already inserted, do NOT change)
+WEBHOOK_URL = "https://xforium-watermark-bot.onrender.com"  
 
-async def add_watermark(input_image: BytesIO) -> BytesIO:
-    original = Image.open(input_image).convert("RGBA")
+app = Flask(__name__)
+application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Load watermark
-    watermark = Image.open(WATERMARK_PATH).convert("RGBA")
+# ✅ Watermark logic
+def add_watermark(image_bytes):
+    image = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    txt_layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(txt_layer)
 
-    # ✅ Resize watermark to ~70% of original width (smaller & cleaner)
-    new_width = int(original.width * 0.7)
-    aspect_ratio = watermark.height / watermark.width
-    new_height = int(new_width * aspect_ratio)
-    watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
+    font_size = int(min(image.size) / 17)  # ✅ Slightly smaller watermark
+    font = ImageFont.truetype("arial.ttf", font_size)
 
-    # ✅ Rotate watermark to ~80° (slightly tilted)
-    watermark = watermark.rotate(80, expand=1)
+    text = "@xAutomation"
+    text_width, text_height = draw.textsize(text, font=font)
 
-    # ✅ Make watermark super light (opacity)
-    alpha = watermark.split()[3]
-    alpha = alpha.point(lambda p: p * 0.08)  # ~8% opacity
-    watermark.putalpha(alpha)
+    # ✅ Position: Bottom zone (iPhone ratio) + 0.6 inch higher from bottom
+    y_offset = int(image.height * 0.06)  
+    x = (image.width - text_width) / 2
+    y = image.height - text_height - y_offset
 
-    # ✅ Place watermark near the bottom (iPhone screenshots) but slightly lifted (~0.6 inch)
-    margin_x = int(original.width * 0.05)  # ~5% from left
-    margin_y = int(original.height * 0.17)  # ~17% from bottom (higher than before)
+    # ✅ Draw text (low opacity)
+    draw.text((x, y), text, font=font, fill=(255, 255, 255, 30))
 
-    position = (margin_x, original.height - watermark.height - margin_y)
+    # ✅ Rotate watermark
+    rotated_txt = txt_layer.rotate(80, expand=1)
+    watermarked = Image.alpha_composite(image, rotated_txt)
 
-    # Paste watermark
-    watermarked = Image.new("RGBA", original.size)
-    watermarked.paste(original, (0, 0))
-    watermarked.paste(watermark, position, mask=watermark)
+    # ✅ Enhance brightness
+    enhancer = ImageEnhance.Brightness(watermarked)
+    watermarked = enhancer.enhance(1)
 
     output = BytesIO()
-    watermarked.convert("RGB").save(output, format="JPEG", quality=95)
+    watermarked.convert("RGB").save(output, format="JPEG")
     output.seek(0)
     return output
 
-async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]
-    file = await photo.get_file()
-    image_bytes = BytesIO()
-    await file.download_to_memory(out=image_bytes)
-    image_bytes.seek(0)
-
-    watermarked_image = await add_watermark(image_bytes)
-    await update.message.reply_photo(photo=watermarked_image, caption="✅ Watermark added!")
-
+# ✅ Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send me an image 📸 and I'll watermark it instantly!")
+    await update.message.reply_text("📸 Send me a screenshot, and I’ll watermark it!")
 
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo = await update.message.photo[-1].get_file()
+    photo_bytes = await photo.download_as_bytearray()
+    watermarked_image = add_watermark(photo_bytes)
+    await update.message.reply_photo(photo=watermarked_image)
 
-    app.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    app.add_handler(MessageHandler(filters.COMMAND, start))
+# ✅ Register handlers
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.PHOTO, handle_image))
 
-    print("✅ Bot is running...")
-    app.run_polling()
+# ✅ Webhook endpoints
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
+    return "ok"
+
+@app.route("/", methods=["GET"])
+def home():
+    return "🤖 Bot is live and running!"
+
+# ✅ Auto set webhook on startup
+async def set_webhook():
+    await application.bot.set_webhook(f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(set_webhook())
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
