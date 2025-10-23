@@ -30,14 +30,14 @@ def add_watermark(image_stream):
     # Rotate watermark ~10°
     watermark = watermark.rotate(10, expand=1)
 
-    # Opacity ~25% (same)
+    # Decrease opacity (~18%) — lighter than before
     alpha = watermark.split()[3]
-    alpha = ImageEnhance.Brightness(alpha).enhance(0.25)
+    alpha = ImageEnhance.Brightness(alpha).enhance(0.18)
     watermark.putalpha(alpha)
 
-    # ✅ Lower position: moved from 0.70 → 0.80 (closer to bottom)
+    # ✅ Slightly higher position: was 0.80 → now 0.77
     x = int(original.width * 0.5 - watermark.width / 2)
-    y = int(original.height * 0.80 - watermark.height / 2)
+    y = int(original.height * 0.77 - watermark.height / 2)
 
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
