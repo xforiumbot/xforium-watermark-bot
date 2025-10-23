@@ -21,8 +21,8 @@ def add_watermark(image_stream):
     original = Image.open(image_stream).convert("RGBA")
     watermark = Image.open("watermark.png").convert("RGBA")
 
-    # Resize watermark ~80% of original width
-    new_width = int(original.width * 0.8)
+    # Resize watermark to ~70% of original width (slightly smaller)
+    new_width = int(original.width * 0.7)
     aspect_ratio = watermark.height / watermark.width
     new_height = int(new_width * aspect_ratio)
     watermark = watermark.resize((new_width, new_height), Image.LANCZOS)
@@ -30,14 +30,14 @@ def add_watermark(image_stream):
     # Rotate watermark ~10°
     watermark = watermark.rotate(10, expand=1)
 
-    # Decrease opacity (~25%)
+    # Opacity ~25% (same)
     alpha = watermark.split()[3]
     alpha = ImageEnhance.Brightness(alpha).enhance(0.25)
     watermark.putalpha(alpha)
 
-    # ✅ New position (~0.5 inch higher): was 0.75 → now 0.70
+    # ✅ Lower position: moved from 0.70 → 0.80 (closer to bottom)
     x = int(original.width * 0.5 - watermark.width / 2)
-    y = int(original.height * 0.70 - watermark.height / 2)
+    y = int(original.height * 0.80 - watermark.height / 2)
 
     watermarked = Image.new("RGBA", original.size)
     watermarked.paste(original, (0, 0))
@@ -70,5 +70,8 @@ def run_bot():
     app.run_polling()
 
 if __name__ == "__main__":
-    threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))), daemon=True).start()
+    threading.Thread(
+        target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080))),
+        daemon=True
+    ).start()
     run_bot()
